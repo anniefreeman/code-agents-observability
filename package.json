@@ -4,10 +4,14 @@
   "private": true,
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "node -r ./tracing.js src/server.js",
     "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
+    "@opentelemetry/auto-instrumentations-node": "^0.74.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.216.0",
+    "@opentelemetry/sdk-node": "^0.216.0",
+    "dotenv": "^17.4.2",
     "express": "^4.19.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"

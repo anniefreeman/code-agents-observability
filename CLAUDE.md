@@ -64,6 +64,20 @@ A user has many bookings. A session has many bookings (capacity-limited). A book
 - Reusable schemas live in `src/swagger.js` under `components.schemas`. Route-level JSDoc references them via `$ref`.
 - `src/swagger.js` globs `./src/features/**/routes.js` — adding a new feature folder is auto-picked-up.
 
+## Observability
+
+OpenTelemetry traces are exported to Coralogix via OTLP/HTTP.
+
+- **`tracing.js`** at the repo root bootstraps the SDK. It is preloaded by the start script (`node -r ./tracing.js src/server.js`) so auto-instrumentation can patch modules before the app imports them. Order matters — never `require('./tracing')` from inside app code.
+- **Auto-instrumentation only** for now (`@opentelemetry/auto-instrumentations-node`) — Express, HTTP, fs, etc. produce spans automatically. Add manual spans only when something interesting falls outside auto-coverage.
+- **Endpoint**: `https://ingress.<CX_DOMAIN>/v1/traces` — Coralogix uses the standard OTLP HTTP path.
+- **Encoding**: protobuf (Coralogix's OTLP endpoint rejects JSON with HTTP 400). Uses `@opentelemetry/exporter-trace-otlp-proto`, *not* `-otlp-http`.
+- **Diagnostic logging**: `tracing.js` wires `diag.setLogger(...)` so OTel internals (export failures, dropped spans) print to the server console. Default level is `WARN`; override with `OTEL_LOG_LEVEL=DEBUG` (or `INFO`/`ERROR`) when investigating something. Without this, OTel swallows export errors silently.
+- **Auth headers**: `Authorization: Bearer <CX_PRIVATE_KEY>` plus `cx-application-name` and `cx-subsystem-name` so traces are tagged correctly in Coralogix.
+- **Config via `.env`** (loaded by `dotenv` inside `tracing.js`). Required vars are documented in `.env.example`. The real `.env` is gitignored.
+
+Metrics and logs are deliberately not wired up yet — keep the diff small and prove traces flow first.
+
 ## Out of scope for now
 
 - **Auth** — endpoints are open. When auth lands, `/bookings` becomes user-scoped.
