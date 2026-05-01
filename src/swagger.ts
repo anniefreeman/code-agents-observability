@@ -1,5 +1,23 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
+import {
+  OpenAPIRegistry,
+  OpenApiGeneratorV3,
+} from '@asteasolutions/zod-to-openapi';
+import {
+  SessionInputSchema,
+  SessionResponseSchema,
+} from './features/sessions/schemas';
+
+// Register zod schemas under the names the route JSDoc references via $ref.
+// Adding a new feature: import its schemas and register them here.
+const registry = new OpenAPIRegistry();
+registry.register('NewSession', SessionInputSchema);
+registry.register('Session', SessionResponseSchema);
+
+const zodComponents = new OpenApiGeneratorV3(
+  registry.definitions
+).generateComponents();
 
 const options: swaggerJsdoc.Options = {
   definition: {
@@ -12,26 +30,16 @@ const options: swaggerJsdoc.Options = {
     },
     components: {
       schemas: {
-        Session: {
-          type: 'object',
-          required: ['id'],
-          properties: {
-            id: { type: 'string', example: '1' },
-            name: { type: 'string', example: 'Tennis night' },
-          },
-          additionalProperties: true,
-        },
-        NewSession: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', example: 'Tennis night' },
-          },
-          additionalProperties: true,
-        },
+        ...(zodComponents.components?.schemas ?? {}),
         Error: {
           type: 'object',
           properties: {
             error: { type: 'string', example: 'Not found' },
+            issues: {
+              type: 'array',
+              items: { type: 'object' },
+              description: 'Present on validation errors; zod issue objects.',
+            },
           },
         },
       },

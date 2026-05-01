@@ -22,12 +22,18 @@ A hobby-trial booking platform — users discover and book sessions across heter
 ```
 src/
   app.ts                Express app: mounts feature routers + Swagger UI
-  server.ts             Boots the app
+  server.ts             Boots the app (imports tracing first)
   swagger.ts            OpenAPI spec generator + UI middleware
   features/
     <feature>/
       routes.ts         URL → controller wiring + @openapi JSDoc
       controller.ts     HTTP-aware handlers (req/res)
+      schemas/          One file per model layer (see below)
+        input.ts        <Feature>InputSchema + type
+        stored.ts       <Feature>StoredSchema + type
+        response.ts     <Feature>ResponseSchema + type
+        index.ts        Re-exports — callers `import from './schemas'`
+      mappers.ts        Pure transforms between Input/Stored/Response
       store.ts          Persistence layer (no HTTP awareness)
 test/
   <feature>.test.ts     supertest-based integration tests for the feature
@@ -37,18 +43,38 @@ Each feature is self-contained. Routes, controller, and store live together so f
 
 ## Per-feature layering
 
-Three concerns, three files. Do not blur them.
+For a non-trivial feature there are five files, each with a single concern:
 
 - **`routes.ts`** — declarative wiring only. Reading this file should tell you the API surface at a glance. Includes `@openapi` JSDoc above each route.
-- **`controller.ts`** — knows about HTTP. Reads `req`, calls the store, translates results into status codes (`null` from store → 404, etc.). No persistence logic.
-- **`store.ts`** — knows about persistence. Returns plain data (or `null` / `true` / `false`). No `req` / `res`. This is the only file that changes when the in-memory `Map` is swapped for a real database.
+- **`controller.ts`** — knows about HTTP. Validates `req.body` against the input schema, calls mappers + store, returns the response shape. Translates store misses into 404. No business logic, no persistence.
+- **`schemas/`** — zod schemas + inferred types for the three model layers, split one file per layer (`input.ts`, `stored.ts`, `response.ts`) plus an `index.ts` that re-exports. Single source of truth: validation, TypeScript types, AND OpenAPI components are all derived from these definitions.
+- **`mappers.ts`** — pure functions translating between layers (`toStored`, `applyUpdate`, `toResponse`). Easy to unit-test in isolation.
+- **`store.ts`** — persistence. Typed against the Stored shape, returns plain data (or `null` / `true` / `false`). No `req` / `res`, no validation. This is the only file that changes when the in-memory `Map` is swapped for a real database.
 
-If a feature is trivial (e.g. `health`), skip the controller — inline the handler in `routes.ts`. Add a controller when a function would exceed ~5 lines.
+If a feature is trivial (e.g. `health`), skip the controller, schemas, and mappers — inline the handler in `routes.ts`.
+
+### Three model layers (Input / Stored / Response)
+
+Each non-trivial feature has three distinct shapes for its main resource:
+
+- **Input** — what a client may send. `.strict()` rejects unknown fields, which gives mass-assignment protection for free (clients can't sneak in `id`, `status`, server timestamps, etc.).
+- **Stored** — what lives in the store. Input plus server-set fields (`id` as UUID, status, timestamps, denormalised counts).
+- **Response** — what clients see. Stored plus computed fields (`availableSpots`, `isFull`). Internal fields (e.g. soft-delete columns) would be omitted here.
+
+Validation happens once at the boundary (controller). Everything downstream trusts its inputs.
+
+### Cross-feature decoupling
+
+**A feature must not import schemas from another feature.** Foreign-key relationships (a booking's `sessionId`, etc.) are represented as **UUID strings**, not as nested schemas — the consuming feature declares its own field as `z.string().uuid()` and that's it. The Booking schema does not need to know what a Session looks like; only that there is one with a UUID.
+
+If you find yourself wanting to embed another feature's full response in your own (e.g. a booking response that includes the whole session object), prefer returning the foreign-key ID and letting the client compose. That keeps the API minimal, keeps the features independently extractable into separate services, and avoids changes in one feature rippling into another's schemas.
+
+Truly shared utility schemas (a `Location` type used by both sessions and venues, say) would live in a future `src/schemas/shared/` folder *when an actual second consumer appears* — not pre-emptively.
 
 ## Naming conventions
 
 - **Controller methods**: `list`, `get`, `create`, `update`, `remove`. No resource name in the method — the folder is the namespace.
-- **Store methods**: `all`, `get`, `create`, `update`, `remove`.
+- **Store methods**: `all`, `get`, `save`, `remove`. (One write method covers create + update — the controller decides which by calling `get` first.)
 - **Route paths**: feature-relative inside the router (`/`, `/:id`); prefixed in `app.ts` (`app.use('/sessions', sessionsRoutes)`).
 
 ## Resource model
@@ -69,9 +95,9 @@ A user has many bookings. A session has many bookings (capacity-limited). A book
 
 ## API documentation
 
-- Swagger UI is mounted at `/docs`, generated from `@openapi` JSDoc comments above each route.
-- Reusable schemas live in `src/swagger.ts` under `components.schemas`. Route-level JSDoc references them via `$ref`.
-- `src/swagger.ts` globs `./src/features/**/routes.ts` — adding a new feature folder is auto-picked-up.
+- Swagger UI is mounted at `/docs`. The spec is hybrid: **paths come from `@openapi` JSDoc** above each route; **schemas come from zod** via `@asteasolutions/zod-to-openapi` (single source of truth).
+- Each feature's `schemas.ts` decorates its zod schemas with `.openapi('Name')`. `src/swagger.ts` registers them in an `OpenAPIRegistry`, generates `components.schemas`, and merges the result into the `swagger-jsdoc` options. Route JSDoc references the names via `$ref: '#/components/schemas/Name'`.
+- `src/swagger.ts` globs `./src/features/**/routes.ts` — adding a new feature folder is auto-picked-up. (You also need to import + register that feature's zod schemas in `src/swagger.ts`.)
 
 ## Observability
 
@@ -90,5 +116,4 @@ Metrics and logs are deliberately not wired up yet — keep the diff small and p
 ## Out of scope for now
 
 - **Auth** — endpoints are open. When auth lands, `/bookings` becomes user-scoped.
-- **Validation** — bodies are accepted as-is. Validation will live in controllers once session/booking shapes solidify.
 - **Persistence** — in-memory `Map`s only. Swap by replacing the contents of `store.ts` files; nothing else should need to change.
