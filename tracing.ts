@@ -1,21 +1,21 @@
-require('dotenv').config();
-
-const { diag, DiagConsoleLogger, DiagLogLevel } = require('@opentelemetry/api');
-const { NodeSDK } = require('@opentelemetry/sdk-node');
-const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-proto');
-const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
-
-// Surface OTel internals (export failures, dropped spans, etc.) on the server console
-// so silent observability problems are visible without needing to query the backend.
-const OTEL_LOG_LEVEL =
-  DiagLogLevel[(process.env.OTEL_LOG_LEVEL || 'WARN').toUpperCase()] ?? DiagLogLevel.WARN;
-diag.setLogger(new DiagConsoleLogger(), OTEL_LOG_LEVEL);
+import 'dotenv/config';
+import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 
 const CX_DOMAIN = process.env.CX_DOMAIN || 'eu1.coralogix.com';
 const CX_PRIVATE_KEY = process.env.CX_PRIVATE_KEY;
 const APP_NAME = process.env.CX_APPLICATION_NAME || 'code-agents-observability';
 const SUBSYSTEM_NAME =
   process.env.CX_SUBSYSTEM_NAME || process.env.OTEL_SERVICE_NAME || 'sessions-api';
+
+// Surface OTel internals (export failures, dropped spans, etc.) on the server console
+// so silent observability problems are visible without needing to query the backend.
+type LogLevelKey = keyof typeof DiagLogLevel;
+const levelKey = (process.env.OTEL_LOG_LEVEL || 'WARN').toUpperCase() as LogLevelKey;
+const OTEL_LOG_LEVEL = DiagLogLevel[levelKey] ?? DiagLogLevel.WARN;
+diag.setLogger(new DiagConsoleLogger(), OTEL_LOG_LEVEL);
 
 if (!CX_PRIVATE_KEY) {
   console.warn('[tracing] CX_PRIVATE_KEY not set — traces will not be authenticated');

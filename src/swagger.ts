@@ -1,7 +1,7 @@
-const swaggerJsdoc = require('swagger-jsdoc');
-const swaggerUi = require('swagger-ui-express');
+import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
 
-const options = {
+const options: swaggerJsdoc.Options = {
   definition: {
     openapi: '3.0.0',
     info: {
@@ -37,12 +37,9 @@ const options = {
       },
     },
   },
-  apis: ['./src/features/**/routes.js'],
+  apis: ['./src/features/**/routes.ts'],
 };
 
-const spec = swaggerJsdoc(options);
+export const spec = swaggerJsdoc(options);
 
-module.exports = {
-  spec,
-  middleware: [swaggerUi.serve, swaggerUi.setup(spec)],
-};
+export const middleware = [swaggerUi.serve, swaggerUi.setup(spec)];

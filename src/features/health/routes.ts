@@ -1,4 +1,6 @@
-const router = require('express').Router();
+import { Router } from 'express';
+
+const router = Router();
 
 /**
  * @openapi
@@ -16,7 +18,7 @@ const router = require('express').Router();
  *               properties:
  *                 message: { type: string, example: pong }
  */
-router.get('/ping', (req, res) => {
+router.get('/ping', (_req, res) => {
   res.json({ message: 'pong' });
 });
 
@@ -38,7 +40,7 @@ router.get('/ping', (req, res) => {
  *                 uptime: { type: number, example: 12.34 }
  *                 timestamp: { type: string, format: date-time }
  */
-router.get('/health', (req, res) => {
+router.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     uptime: process.uptime(),
@@ -46,4 +48,4 @@ router.get('/health', (req, res) => {
   });
 });
 
-module.exports = router;
+export default router;

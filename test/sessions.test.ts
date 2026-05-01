@@ -1,7 +1,7 @@
-const { test } = require('node:test');
-const assert = require('node:assert');
-const request = require('supertest');
-const app = require('../src/app');
+import { test } from 'node:test';
+import assert from 'node:assert';
+import request from 'supertest';
+import app from '../src/app';
 
 test('POST /sessions creates a session and returns 201 with id', async () => {
   const response = await request(app)

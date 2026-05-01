@@ -2,10 +2,11 @@
   "name": "code-agents-observability",
   "version": "0.1.0",
   "private": true,
-  "main": "src/server.js",
+  "main": "src/server.ts",
   "scripts": {
-    "start": "node -r ./tracing.js src/server.js",
-    "test": "node --test \"test/**/*.test.js\""
+    "start": "tsx src/server.ts",
+    "test": "tsx --test \"test/**/*.test.ts\"",
+    "check": "tsc --noEmit"
   },
   "dependencies": {
     "@opentelemetry/auto-instrumentations-node": "^0.74.0",
@@ -17,6 +18,13 @@
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
-    "supertest": "^7.0.0"
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.0",
+    "@types/supertest": "^7.2.0",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
+    "supertest": "^7.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
   }
 }
