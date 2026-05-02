@@ -2,7 +2,11 @@ import type { BookingInput, BookingStored } from './schemas';
 import { createInMemoryRepository, type BookingRepository } from './repository';
 import * as mappers from './mappers';
 import { NotFoundError, CapacityFullError, DuplicateBookingError } from '../../errors';
-import { sessionService } from '../sessions/service';
+// Namespace import (not destructured) so the sessions module is referenced
+// lazily — sessions/service.ts also imports this module, and we must not
+// capture an export at module-load time when the other side may still be
+// initialising.
+import * as sessions from '../sessions/service';
 
 // Bookings' typed view of a session. Today this is satisfied by an in-process
 // adapter wrapping sessionService.get; tomorrow when sessions extracts into
@@ -92,7 +96,7 @@ export const createBookingService = (
 // an HTTP-backed call. Booking service code is unchanged.
 const sessionsPort: SessionsPort = {
   getSession: async (id) => {
-    const s = sessionService.get(id);
+    const s = await sessions.sessionService.get(id);
     return { id: s.id, capacity: s.capacity, status: s.status };
   },
 };

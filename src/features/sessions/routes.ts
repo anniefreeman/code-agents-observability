@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { asyncHandler } from '../../asyncHandler';
 import * as controller from './controller';
 
 const router = Router();
@@ -18,7 +19,7 @@ const router = Router();
  *               type: array
  *               items: { $ref: '#/components/schemas/Session' }
  */
-router.get('/', controller.list);
+router.get('/', asyncHandler(controller.list));
 
 /**
  * @openapi
@@ -43,7 +44,7 @@ router.get('/', controller.list);
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Error' }
  */
-router.get('/:id', controller.get);
+router.get('/:id', asyncHandler(controller.get));
 
 /**
  * @openapi
@@ -63,7 +64,7 @@ router.get('/:id', controller.get);
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Session' }
  */
-router.post('/', controller.create);
+router.post('/', asyncHandler(controller.create));
 
 /**
  * @openapi
@@ -93,7 +94,7 @@ router.post('/', controller.create);
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Error' }
  */
-router.put('/:id', controller.update);
+router.put('/:id', asyncHandler(controller.update));
 
 /**
  * @openapi
@@ -115,6 +116,6 @@ router.put('/:id', controller.update);
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Error' }
  */
-router.delete('/:id', controller.remove);
+router.delete('/:id', asyncHandler(controller.remove));
 
 export default router;

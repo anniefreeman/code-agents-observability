@@ -105,3 +105,34 @@ test('DELETE /sessions/:id removes a session and returns 204', async () => {
   const after = await request(app).get(`/sessions/${created.body.id}`);
   assert.strictEqual(after.status, 404);
 });
+
+test('GET /sessions/:id reflects bookedCount derived from real confirmed bookings', async () => {
+  const session = await request(app).post('/sessions').send({ ...validInput, capacity: 3 });
+  await request(app)
+    .post('/bookings')
+    .send({ sessionId: session.body.id, attendeeName: 'Booker-A' });
+  await request(app)
+    .post('/bookings')
+    .send({ sessionId: session.body.id, attendeeName: 'Booker-B' });
+
+  const r = await request(app).get(`/sessions/${session.body.id}`);
+
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.bookedCount, 2);
+  assert.strictEqual(r.body.availableSpots, 1);
+  assert.strictEqual(r.body.isFull, false);
+});
+
+test('GET /sessions/:id excludes cancelled bookings from bookedCount', async () => {
+  const session = await request(app).post('/sessions').send({ ...validInput, capacity: 3 });
+  const booking = await request(app)
+    .post('/bookings')
+    .send({ sessionId: session.body.id, attendeeName: 'Booker-C' });
+  await request(app).delete(`/bookings/${booking.body.id}`);
+
+  const r = await request(app).get(`/sessions/${session.body.id}`);
+
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.bookedCount, 0);
+  assert.strictEqual(r.body.availableSpots, 3);
+});
