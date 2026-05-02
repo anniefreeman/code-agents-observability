@@ -21,9 +21,10 @@ A hobby-trial booking platform — users discover and book sessions across heter
 
 ```
 src/
-  app.ts                Express app: mounts feature routers + Swagger UI
+  app.ts                Express app: mounts feature routers + Swagger UI + error middleware
   server.ts             Boots the app (imports telemetry first)
   swagger.ts            OpenAPI spec generator + UI middleware
+  errors.ts             Shared domain errors (NotFoundError, ...) thrown across features
   telemetry/
     instrumentation.ts  OTel SDK bootstrap — traces + metrics + logs + auto-instrumentations
     logger.ts           Shared pino instance (auto-bridged to OTel logs)
@@ -31,30 +32,37 @@ src/
     <feature>/
       routes.ts         URL → controller wiring + @openapi JSDoc
       controller.ts     HTTP-aware handlers (req/res)
+      service.ts        Business logic — createXService(repo) factory + singleton
+      repository.ts     Persistence port (Repository type) + in-memory adapter
       schemas/          One file per model layer (see below)
         input.ts        <Feature>InputSchema + type
         stored.ts       <Feature>StoredSchema + type
         response.ts     <Feature>ResponseSchema + type
         index.ts        Re-exports — callers `import from './schemas'`
-      mappers.ts        Pure transforms between Input/Stored/Response
-      store.ts          Persistence layer (no HTTP awareness)
+      mappers.ts        Pure transforms between Input/Stored/Response + domain helpers
 test/
-  <feature>.test.ts     supertest-based integration tests for the feature
+  <feature>.test.ts          supertest-based integration tests for the feature
+  <feature>.service.test.ts  unit tests for the service layer (factory + isolated repo)
 ```
 
-Each feature is self-contained. Routes, controller, and store live together so future service extraction is a `git mv`.
+Each feature is self-contained. Routes, controller, service, and repository live together so future service extraction is a `git mv`.
 
 ## Per-feature layering
 
-For a non-trivial feature there are five files, each with a single concern:
+Three runtime layers — controller → service → repository — plus pure-function helpers (schemas, mappers).
 
 - **`routes.ts`** — declarative wiring only. Reading this file should tell you the API surface at a glance. Includes `@openapi` JSDoc above each route.
-- **`controller.ts`** — knows about HTTP. Validates `req.body` against the input schema, calls mappers + store, returns the response shape. Translates store misses into 404. No business logic, no persistence.
+- **`controller.ts`** — knows about HTTP. Validates `req.body` against the input schema (the boundary), calls the service singleton, shapes the response via `mappers.toResponse`. No business logic, no persistence, no null-checks for missing entities — domain errors thrown by the service flow to the error middleware in `app.ts`, which maps them to status codes (`NotFoundError` → 404).
+- **`service.ts`** — business logic. Exposes a `createXService(repo)` factory that closes over its repository dependency, plus a default `xService` singleton wired to the in-memory adapter. Trusts already-validated input. Throws typed domain errors (`NotFoundError`, etc.) instead of returning `null`. Knows nothing about HTTP.
+- **`repository.ts`** — persistence port + adapter. Exports a `XRepository` type (the contract the service depends on) and `createInMemoryX()` factory. A SQL-backed adapter would satisfy the same type. Typed against the Stored shape, returns plain data. No `req` / `res`, no validation, no business rules.
 - **`schemas/`** — zod schemas + inferred types for the three model layers, split one file per layer (`input.ts`, `stored.ts`, `response.ts`) plus an `index.ts` that re-exports. Single source of truth: validation, TypeScript types, AND OpenAPI components are all derived from these definitions.
-- **`mappers.ts`** — pure functions translating between layers (`toStored`, `applyUpdate`, `toResponse`). Easy to unit-test in isolation.
-- **`store.ts`** — persistence. Typed against the Stored shape, returns plain data (or `null` / `true` / `false`). No `req` / `res`, no validation. This is the only file that changes when the in-memory `Map` is swapped for a real database.
+- **`mappers.ts`** — pure functions translating between layers (`toStored`, `applyUpdate`, `toResponse`) plus domain helpers (e.g. `availableSpots`, `isFull`) shared between service and `toResponse`. Easy to unit-test in isolation.
 
-If a feature is trivial (e.g. `health`), skip the controller, schemas, and mappers — inline the handler in `routes.ts`.
+If a feature is trivial (e.g. `health`), skip the controller, service, schemas, and mappers — inline the handler in `routes.ts`.
+
+### Why factory + DI for the service
+
+The service is constructed by a `createXService(repo)` factory that returns a plain object whose methods close over `repo`. The default singleton wires the in-memory repository; tests construct their own service+repo pair per test for trivial isolation. We avoid classes (and `this`-binding pitfalls / `private` not being real) — see `src/features/sessions/service.ts` for the canonical example.
 
 ### Three model layers (Input / Stored / Response)
 
@@ -77,7 +85,9 @@ Truly shared utility schemas (a `Location` type used by both sessions and venues
 ## Naming conventions
 
 - **Controller methods**: `list`, `get`, `create`, `update`, `remove`. No resource name in the method — the folder is the namespace.
-- **Store methods**: `all`, `get`, `save`, `remove`. (One write method covers create + update — the controller decides which by calling `get` first.)
+- **Service methods**: `list`, `get`, `create`, `update`, `remove`. Mirror the controller. `get` / `update` / `remove` throw `NotFoundError` rather than returning a nullable.
+- **Repository methods**: `all`, `get`, `save`, `remove`. (One write method covers create + update — the service decides which by calling `get` first.)
+- **Factories**: `createXService`, `createInMemoryX`.
 - **Route paths**: feature-relative inside the router (`/`, `/:id`); prefixed in `app.ts` (`app.use('/sessions', sessionsRoutes)`).
 
 ## Resource model
@@ -118,4 +128,4 @@ All three OpenTelemetry signals (traces, metrics, logs) are exported to Coralogi
 ## Out of scope for now
 
 - **Auth** — endpoints are open. When auth lands, `/bookings` becomes user-scoped.
-- **Persistence** — in-memory `Map`s only. Swap by replacing the contents of `store.ts` files; nothing else should need to change.
+- **Persistence** — in-memory `Map`s only. Swap by adding a SQL adapter that satisfies each feature's `XRepository` type and wiring the service singleton to it; nothing else should need to change. At that point, also split `Stored` into `Domain` (in-memory model) + `Persisted` (DB row shape).

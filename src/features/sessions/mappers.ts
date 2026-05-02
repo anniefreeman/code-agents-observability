@@ -31,9 +31,16 @@ export const applyUpdate = (
   updatedAt: new Date().toISOString(),
 });
 
+// Domain predicates. Pulled out so the service can use them for capacity
+// checks (e.g. once /bookings lands) without re-deriving the maths.
+export const availableSpots = (s: SessionStored): number =>
+  Math.max(0, s.capacity - s.bookedCount);
+
+export const isFull = (s: SessionStored): boolean => s.bookedCount >= s.capacity;
+
 // Translate a stored session into the response shape, adding computed fields.
 export const toResponse = (stored: SessionStored): SessionResponse => ({
   ...stored,
-  availableSpots: Math.max(0, stored.capacity - stored.bookedCount),
-  isFull: stored.bookedCount >= stored.capacity,
+  availableSpots: availableSpots(stored),
+  isFull: isFull(stored),
 });
