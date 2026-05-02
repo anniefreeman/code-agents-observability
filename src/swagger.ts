@@ -8,12 +8,18 @@ import {
   SessionInputSchema,
   SessionResponseSchema,
 } from './features/sessions/schemas';
+import {
+  BookingInputSchema,
+  BookingResponseSchema,
+} from './features/bookings/schemas';
 
 // Register zod schemas under the names the route JSDoc references via $ref.
 // Adding a new feature: import its schemas and register them here.
 const registry = new OpenAPIRegistry();
 registry.register('NewSession', SessionInputSchema);
 registry.register('Session', SessionResponseSchema);
+registry.register('NewBooking', BookingInputSchema);
+registry.register('Booking', BookingResponseSchema);
 
 const zodComponents = new OpenApiGeneratorV3(
   registry.definitions
