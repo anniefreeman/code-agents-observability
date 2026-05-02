@@ -17,5 +17,5 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src/**/*", "test/**/*", "tracing.ts"]
+  "include": ["src/**/*", "test/**/*"]
 }

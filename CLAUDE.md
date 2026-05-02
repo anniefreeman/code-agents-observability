@@ -22,8 +22,11 @@ A hobby-trial booking platform — users discover and book sessions across heter
 ```
 src/
   app.ts                Express app: mounts feature routers + Swagger UI
-  server.ts             Boots the app (imports tracing first)
+  server.ts             Boots the app (imports telemetry first)
   swagger.ts            OpenAPI spec generator + UI middleware
+  telemetry/
+    instrumentation.ts  OTel SDK bootstrap — traces + metrics + logs + auto-instrumentations
+    logger.ts           Shared pino instance (auto-bridged to OTel logs)
   features/
     <feature>/
       routes.ts         URL → controller wiring + @openapi JSDoc
@@ -101,17 +104,16 @@ A user has many bookings. A session has many bookings (capacity-limited). A book
 
 ## Observability
 
-OpenTelemetry traces are exported to Coralogix via OTLP/HTTP.
+All three OpenTelemetry signals (traces, metrics, logs) are exported to Coralogix via OTLP/HTTP.
 
-- **`tracing.ts`** at the repo root bootstraps the SDK. It is imported as the **first line** of `src/server.ts` — auto-instrumentation patches modules at import time, so anything imported before it (including `./app`) won't be instrumented. Don't import `./tracing` from anywhere else; once is enough and re-imports re-initialise the SDK.
-- **Auto-instrumentation only** for now (`@opentelemetry/auto-instrumentations-node`) — Express, HTTP, fs, etc. produce spans automatically. Add manual spans only when something interesting falls outside auto-coverage.
-- **Endpoint**: `https://ingress.<CX_DOMAIN>/v1/traces` — Coralogix uses the standard OTLP HTTP path.
-- **Encoding**: protobuf (Coralogix's OTLP endpoint rejects JSON with HTTP 400). Uses `@opentelemetry/exporter-trace-otlp-proto`, *not* `-otlp-http`.
-- **Diagnostic logging**: `tracing.ts` wires `diag.setLogger(...)` so OTel internals (export failures, dropped spans) print to the server console. Default level is `WARN`; override with `OTEL_LOG_LEVEL=DEBUG` (or `INFO`/`ERROR`) when investigating something. Without this, OTel swallows export errors silently.
-- **Auth headers**: `Authorization: Bearer <CX_PRIVATE_KEY>` plus `cx-application-name` and `cx-subsystem-name` so traces are tagged correctly in Coralogix.
-- **Config via `.env`** (loaded by `dotenv` inside `tracing.ts`). Required vars are documented in `.env.example`. The real `.env` is gitignored.
-
-Metrics and logs are deliberately not wired up yet — keep the diff small and prove traces flow first.
+- **`src/telemetry/instrumentation.ts`** bootstraps the OTel SDK. It is imported as the **first line** of `src/server.ts` — auto-instrumentation patches modules at import time, so anything imported before it (including `./app`) won't be instrumented. Don't import it from anywhere else; once is enough and re-imports re-initialise the SDK.
+- **`src/telemetry/logger.ts`** exports a shared `pino` instance. App code emits log records via `logger.info(...)` etc.; `pino-http` middleware in `src/app.ts` produces a structured log per HTTP request. The auto-instrumentation bundle's `instrumentation-pino` bridges every record to the OTel logger provider, which exports them via OTLP. Each record carries the active `trace_id` / `span_id`, so logs pivot to traces in Coralogix.
+- **Auto-instrumentation only** for now (`@opentelemetry/auto-instrumentations-node`) — Express, HTTP, pino, fs, etc. produce spans/metrics/log-bridges automatically. Add manual spans, meters, or log calls only when something interesting falls outside auto-coverage.
+- **Endpoints**: `https://ingress.<CX_DOMAIN>/v1/{traces,metrics,logs}` — Coralogix uses the standard OTLP HTTP paths.
+- **Encoding**: protobuf (Coralogix's OTLP endpoint rejects JSON with HTTP 400). Uses the `-proto` exporters (`exporter-trace-otlp-proto`, `exporter-metrics-otlp-proto`, `exporter-logs-otlp-proto`), *not* `-otlp-http`.
+- **Diagnostic logging**: `instrumentation.ts` wires `diag.setLogger(...)` so OTel internals (export failures, dropped spans) print to the server console. Default level is `WARN`; override with `OTEL_LOG_LEVEL=DEBUG` (or `INFO`/`ERROR`) when investigating something. Without this, OTel swallows export errors silently.
+- **Auth headers**: `Authorization: Bearer <CX_PRIVATE_KEY>` plus `cx-application-name` and `cx-subsystem-name` so all signals are tagged correctly in Coralogix.
+- **Config via `.env`** (loaded by `dotenv` inside `instrumentation.ts`). Required vars are documented in `.env.example`. The real `.env` is gitignored.
 
 ## Out of scope for now
 

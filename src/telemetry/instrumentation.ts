@@ -2,6 +2,10 @@ import 'dotenv/config';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-proto';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto';
+import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 
 const CX_DOMAIN = process.env.CX_DOMAIN || 'eu1.coralogix.com';
@@ -18,24 +22,42 @@ const OTEL_LOG_LEVEL = DiagLogLevel[levelKey] ?? DiagLogLevel.WARN;
 diag.setLogger(new DiagConsoleLogger(), OTEL_LOG_LEVEL);
 
 if (!CX_PRIVATE_KEY) {
-  console.warn('[tracing] CX_PRIVATE_KEY not set — traces will not be authenticated');
+  console.warn('[telemetry] CX_PRIVATE_KEY not set — telemetry will not be authenticated');
 }
+
+const cxHeaders = {
+  Authorization: `Bearer ${CX_PRIVATE_KEY}`,
+  'cx-application-name': APP_NAME,
+  'cx-subsystem-name': SUBSYSTEM_NAME,
+};
 
 const sdk = new NodeSDK({
   traceExporter: new OTLPTraceExporter({
     url: `https://ingress.${CX_DOMAIN}/v1/traces`,
-    headers: {
-      Authorization: `Bearer ${CX_PRIVATE_KEY}`,
-      'cx-application-name': APP_NAME,
-      'cx-subsystem-name': SUBSYSTEM_NAME,
-    },
+    headers: cxHeaders,
   }),
+  metricReaders: [
+    new PeriodicExportingMetricReader({
+      exporter: new OTLPMetricExporter({
+        url: `https://ingress.${CX_DOMAIN}/v1/metrics`,
+        headers: cxHeaders,
+      }),
+    }),
+  ],
+  logRecordProcessors: [
+    new BatchLogRecordProcessor(
+      new OTLPLogExporter({
+        url: `https://ingress.${CX_DOMAIN}/v1/logs`,
+        headers: cxHeaders,
+      })
+    ),
+  ],
   instrumentations: [getNodeAutoInstrumentations()],
 });
 
 sdk.start();
 console.log(
-  `[tracing] OpenTelemetry started — ${APP_NAME}/${SUBSYSTEM_NAME} → ${CX_DOMAIN}`
+  `[telemetry] OpenTelemetry started — ${APP_NAME}/${SUBSYSTEM_NAME} → ${CX_DOMAIN} (traces + metrics + logs)`
 );
 
 process.on('SIGTERM', () => {

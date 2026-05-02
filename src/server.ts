@@ -1,10 +1,12 @@
-// Tracing must be the first import — it patches modules at import time, so
-// any module imported before it (including ./app) won't be auto-instrumented.
-import '../tracing';
+// Telemetry must be the first import — auto-instrumentations patch modules at
+// import time, so anything imported before it (including ./app) won't be
+// instrumented.
+import './telemetry/instrumentation';
 import app from './app';
+import logger from './telemetry/logger';
 
 const PORT = Number(process.env.PORT) || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  logger.info({ port: PORT }, 'Server listening');
 });
