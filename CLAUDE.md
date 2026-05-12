@@ -5,8 +5,11 @@ A hobby-trial booking platform — users discover and book sessions across heter
 ## Commands
 
 - `npm start` — run the server (default port 3000; override with `PORT=...`)
-- `npm test` — run all tests under `test/**/*.test.ts`
+- `npm test` — run all tests under `test/**/*.test.ts` (uses the in-memory adapter)
 - `npm run check` — type-check the whole project with `tsc --noEmit` (CI gate, not a dev-loop step)
+- `docker compose up -d` — start the local Postgres
+- `npm run db:generate` — generate a new migration from schema changes in `src/db/schema/`
+- `npm run db:migrate` — apply pending migrations (requires `DATABASE_URL`)
 - Swagger UI: `http://localhost:3000/docs` once the server is running
 
 ## TypeScript toolchain
@@ -24,25 +27,31 @@ src/
   app.ts                Express app: mounts feature routers + Swagger UI + error middleware
   server.ts             Boots the app (imports telemetry first)
   swagger.ts            OpenAPI spec generator + UI middleware
-  errors.ts             Shared domain errors (NotFoundError, ...) thrown across features
+  errors.ts             Shared DomainError hierarchy (NotFoundError, ...)
+  asyncHandler.ts       Wraps async route handlers so rejections forward to error middleware
   telemetry/
     instrumentation.ts  OTel SDK bootstrap — traces + metrics + logs + auto-instrumentations
     logger.ts           Shared pino instance (auto-bridged to OTel logs)
+  db/
+    index.ts            pg Pool + drizzle client; getDb() returns null if DATABASE_URL unset
+    schema/             Drizzle table definitions, one file per resource
   features/
     <feature>/
-      routes.ts         URL → controller wiring + @openapi JSDoc
-      controller.ts     HTTP-aware handlers (req/res)
-      service.ts        Business logic — createXService(repo) factory + singleton
-      repository.ts     Persistence port (Repository type) + in-memory adapter
-      schemas/          One file per model layer (see below)
-        input.ts        <Feature>InputSchema + type
-        stored.ts       <Feature>StoredSchema + type
-        response.ts     <Feature>ResponseSchema + type
-        index.ts        Re-exports — callers `import from './schemas'`
-      mappers.ts        Pure transforms between Input/Stored/Response + domain helpers
+      routes.ts             URL → controller wiring + @openapi JSDoc
+      controller.ts         HTTP-aware handlers (req/res)
+      service.ts            Business logic — createXService(repo, ports) factory + singleton
+      repository.ts         Async repository port + in-memory adapter
+      repository.postgres.ts Postgres adapter (drizzle queries) satisfying the same port
+      schemas/              One file per model layer (input/stored/response/index)
+      mappers.ts            Pure transforms between layers + domain helpers
+migrations/             drizzle-kit generated SQL; committed to the repo
+scripts/
+  migrate.ts            One-shot migration runner (npm run db:migrate)
 test/
   <feature>.test.ts          supertest-based integration tests for the feature
   <feature>.service.test.ts  unit tests for the service layer (factory + isolated repo)
+docker-compose.yml      Local Postgres (and eventually the app + other services)
+drizzle.config.ts       drizzle-kit config (only used by tooling, not the runtime)
 ```
 
 Each feature is self-contained. Routes, controller, service, and repository live together so future service extraction is a `git mv`.
@@ -54,7 +63,7 @@ Three runtime layers — controller → service → repository — plus pure-fun
 - **`routes.ts`** — declarative wiring only. Reading this file should tell you the API surface at a glance. Includes `@openapi` JSDoc above each route.
 - **`controller.ts`** — knows about HTTP. Validates `req.body` against the input schema (the boundary), calls the service singleton, shapes the response via `mappers.toResponse`. No business logic, no persistence, no null-checks for missing entities — domain errors thrown by the service flow to the error middleware in `app.ts`, which maps them to status codes (`NotFoundError` → 404).
 - **`service.ts`** — business logic. Exposes a `createXService(repo)` factory that closes over its repository dependency, plus a default `xService` singleton wired to the in-memory adapter. Trusts already-validated input. Throws typed domain errors (`NotFoundError`, etc.) instead of returning `null`. Knows nothing about HTTP.
-- **`repository.ts`** — persistence port + adapter. Exports a `XRepository` type (the contract the service depends on) and `createInMemoryX()` factory. A SQL-backed adapter would satisfy the same type. Typed against the Stored shape, returns plain data. No `req` / `res`, no validation, no business rules.
+- **`repository.ts`** — persistence port + in-memory adapter. Exports an async `XRepository` type (all methods return `Promise<...>`) and `createInMemoryX()` factory. Sibling `repository.postgres.ts` provides the SQL-backed adapter via drizzle; both satisfy the same port. Typed against the Stored shape, returns plain data. No `req` / `res`, no validation, no business rules.
 - **`schemas/`** — zod schemas + inferred types for the three model layers, split one file per layer (`input.ts`, `stored.ts`, `response.ts`) plus an `index.ts` that re-exports. Single source of truth: validation, TypeScript types, AND OpenAPI components are all derived from these definitions.
 - **`mappers.ts`** — pure functions translating between layers (`toStored`, `applyUpdate`, `toResponse`) plus domain helpers (e.g. `availableSpots`, `isFull`) shared between service and `toResponse`. Easy to unit-test in isolation.
 
@@ -87,17 +96,17 @@ Truly shared utility schemas (a `Location` type used by both sessions and venues
 - **Controller methods**: `list`, `get`, `create`, `update`, `remove`. No resource name in the method — the folder is the namespace.
 - **Service methods**: `list`, `get`, `create`, `update`, `remove`. Mirror the controller. `get` / `update` / `remove` throw `NotFoundError` rather than returning a nullable.
 - **Repository methods**: `all`, `get`, `save`, `remove`. (One write method covers create + update — the service decides which by calling `get` first.)
-- **Factories**: `createXService`, `createInMemoryX`.
+- **Factories**: `createXService`, `createInMemoryX`, `createPostgresX`.
 - **Route paths**: feature-relative inside the router (`/`, `/:id`); prefixed in `app.ts` (`app.use('/sessions', sessionsRoutes)`).
 
 ## Resource model
 
 Two distinct user-facing resources:
 
-- **`/sessions`** — bookable activities. Created and managed by hosts. Full CRUD including PUT (sessions can be edited).
-- **`/bookings`** *(planned)* — a user's claim on a session. References `sessionId`. **No PUT** — bookings are cancelled and recreated, not edited.
+- **`/sessions`** — bookable activities. Created and managed by hosts. Full CRUD. Response `bookedCount` / `availableSpots` / `isFull` are derived live via the `BookingsPort` (not stored).
+- **`/bookings`** — a user's claim on a session. References `sessionId`. **No PUT** — bookings are cancelled and recreated. DELETE is a soft delete (status flips to `'cancelled'`, row remains for audit). Uniqueness: an attendee may hold one *confirmed* booking per session — cancelling and rebooking is allowed.
 
-A user has many bookings. A session has many bookings (capacity-limited). A booking belongs to exactly one user and one session.
+Cross-feature talk happens over typed async ports (`SessionsPort`, `BookingsPort`) wired in each service's singleton. Lazy + namespace imports avoid the module-init circular issue. When either feature extracts into its own service, only the port adapter changes.
 
 ## Testing
 
@@ -125,7 +134,21 @@ All three OpenTelemetry signals (traces, metrics, logs) are exported to Coralogi
 - **Auth headers**: `Authorization: Bearer <CX_PRIVATE_KEY>` plus `cx-application-name` and `cx-subsystem-name` so all signals are tagged correctly in Coralogix.
 - **Config via `.env`** (loaded by `dotenv` inside `instrumentation.ts`). Required vars are documented in `.env.example`. The real `.env` is gitignored.
 
+## Persistence
+
+Postgres-backed via [Drizzle](https://orm.drizzle.team/). Two adapters live behind the repository port:
+
+- **In-memory** (`repository.ts`) — used when `DATABASE_URL` is unset. Tests use this path by default.
+- **Postgres** (`repository.postgres.ts`) — used when `DATABASE_URL` is set. Returns ISO 8601 timestamps (Postgres native format is normalised on the way out). Upserts via `INSERT ... ON CONFLICT (id) DO UPDATE` to match the in-memory adapter's `save` semantics.
+
+`src/db/getDb()` returns the shared drizzle client (built lazily on first call) or `null` when `DATABASE_URL` is unset. Each feature's service singleton picks the adapter at module init based on this. The pg pool is auto-instrumented by OTel (via the `auto-instrumentations-node` bundle) — every query becomes a span on the request trace.
+
+Migrations live in `migrations/` and are committed. Generate with `npm run db:generate` after editing `src/db/schema/`; apply with `npm run db:migrate` (locally; in EKS this runs as a Kubernetes Job before the app rolls).
+
+`DATABASE_URL` is the single env-var contract — same shape for local docker-compose Postgres and (eventually) RDS.
+
 ## Out of scope for now
 
 - **Auth** — endpoints are open. When auth lands, `/bookings` becomes user-scoped.
-- **Persistence** — in-memory `Map`s only. Swap by adding a SQL adapter that satisfies each feature's `XRepository` type and wiring the service singleton to it; nothing else should need to change. At that point, also split `Stored` into `Domain` (in-memory model) + `Persisted` (DB row shape).
+- **Deployment** — local Docker for Postgres only; containerising the app and producing k8s manifests for EKS are the next planned steps.
+- **Future refactor**: once persistence diverges from the in-memory model (e.g. denormalised columns, soft-delete tombstones), split `Stored` into a `Domain` shape and a `Persisted` DB-row shape with a mapping in the Postgres adapter.

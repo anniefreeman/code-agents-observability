@@ -93,14 +93,38 @@ A booking is a user's claim on a session. References `sessionId`. Bookings have 
 
 ```bash
 npm install
-cp .env.example .env   # fill in Coralogix creds (or leave blank for local-only)
-npm start              # http://localhost:3000
+cp .env.example .env       # fill in Coralogix creds (or leave blank for local-only)
+```
+
+**Run with persistence (Postgres):**
+
+```bash
+docker compose up -d       # starts postgres on localhost:5432
+npm run db:migrate         # applies migrations under ./migrations
+npm start                  # http://localhost:3000
+```
+
+**Run without persistence (in-memory, state lost on restart):**
+
+```bash
+# Unset DATABASE_URL in .env (or comment it out), then:
+npm start
 ```
 
 ```bash
-npm test          # run all tests (node:test + supertest)
+npm test          # run all tests (uses the in-memory adapter)
 npm run check     # type-check (tsc --noEmit)
+npm run db:generate  # generate a new migration from schema changes
 ```
+
+### Database
+
+Postgres-backed via [Drizzle](https://orm.drizzle.team/). The repository port has two adapters — an in-memory `Map` (for tests and quick local runs) and a Postgres one. The service picks based on `DATABASE_URL`:
+
+- **Set** → Postgres (via the pool in `src/db/index.ts`, auto-instrumented by OTel)
+- **Unset** → in-memory `Map`
+
+Schema lives in `src/db/schema/`; migrations live in `./migrations/` and are committed to the repo.
 
 ## Out of scope for now
 

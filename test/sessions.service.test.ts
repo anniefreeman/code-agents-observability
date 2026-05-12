@@ -53,7 +53,7 @@ test('service.create persists the session to the repo (Stored shape, no bookedCo
   const { repo, service } = setup();
 
   const created = await service.create(buildInput());
-  const stored = repo.get(created.id);
+  const stored = await repo.get(created.id);
 
   assert.ok(stored);
   assert.equal(stored.id, created.id);

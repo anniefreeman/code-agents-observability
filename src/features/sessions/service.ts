@@ -1,5 +1,7 @@
 import type { SessionInput, SessionResponse, SessionStored } from './schemas';
 import { createInMemoryRepository, type SessionRepository } from './repository';
+import { createPostgresRepository } from './repository.postgres';
+import { getDb } from '../../db';
 import * as mappers from './mappers';
 import { NotFoundError } from '../../errors';
 // Namespace import (not destructured) so the bookings module is referenced
@@ -31,20 +33,20 @@ export const createSessionService = (
     mappers.toResponse(stored, await bookingsPort.countConfirmed(stored.id));
 
   return {
-    list: async () => Promise.all(repo.all().map(respond)),
+    list: async () => Promise.all((await repo.all()).map(respond)),
     get: async (id) => {
-      const found = repo.get(id);
+      const found = await repo.get(id);
       if (!found) throw new NotFoundError(`Session ${id} not found`);
       return respond(found);
     },
-    create: async (input) => respond(repo.save(mappers.toStored(input))),
+    create: async (input) => respond(await repo.save(mappers.toStored(input))),
     update: async (id, input) => {
-      const existing = repo.get(id);
+      const existing = await repo.get(id);
       if (!existing) throw new NotFoundError(`Session ${id} not found`);
-      return respond(repo.save(mappers.applyUpdate(existing, input)));
+      return respond(await repo.save(mappers.applyUpdate(existing, input)));
     },
     remove: async (id) => {
-      if (!repo.remove(id)) throw new NotFoundError(`Session ${id} not found`);
+      if (!(await repo.remove(id))) throw new NotFoundError(`Session ${id} not found`);
     },
   };
 };
@@ -61,7 +63,10 @@ const bookingsPort: BookingsPort = {
   },
 };
 
-export const sessionService = createSessionService(
-  createInMemoryRepository(),
-  bookingsPort
-);
+// Pick the adapter at boot. DATABASE_URL set → Postgres; otherwise in-memory.
+const db = getDb();
+const sessionRepo: SessionRepository = db
+  ? createPostgresRepository(db)
+  : createInMemoryRepository();
+
+export const sessionService = createSessionService(sessionRepo, bookingsPort);

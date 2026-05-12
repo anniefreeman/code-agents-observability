@@ -1,5 +1,7 @@
 import type { BookingInput, BookingStored } from './schemas';
 import { createInMemoryRepository, type BookingRepository } from './repository';
+import { createPostgresRepository } from './repository.postgres';
+import { getDb } from '../../db';
 import * as mappers from './mappers';
 import { NotFoundError, CapacityFullError, DuplicateBookingError } from '../../errors';
 // Namespace import (not destructured) so the sessions module is referenced
@@ -43,14 +45,14 @@ export const createBookingService = (
   sessions: SessionsPort
 ): BookingService => ({
   list: async (filter) => {
-    const all = repo.all();
+    const all = await repo.all();
     if (filter?.attendeeName !== undefined) {
       return all.filter((b) => b.attendeeName === filter.attendeeName);
     }
     return all;
   },
   get: async (id) => {
-    const found = repo.get(id);
+    const found = await repo.get(id);
     if (!found) throw new NotFoundError(`Booking ${id} not found`);
     return found;
   },
@@ -62,9 +64,9 @@ export const createBookingService = (
     // 2. Capacity is derived from confirmed booking records (option 4b in the
     //    design doc). bookedCount on the session schema is ignored for now;
     //    the source of truth is this filter over the booking repo.
-    const confirmedForSession = repo
-      .all()
-      .filter((b) => b.sessionId === input.sessionId && b.status === 'confirmed');
+    const confirmedForSession = (await repo.all()).filter(
+      (b) => b.sessionId === input.sessionId && b.status === 'confirmed'
+    );
 
     if (confirmedForSession.length >= session.capacity) {
       throw new CapacityFullError(`Session ${input.sessionId} is full`);
@@ -85,9 +87,9 @@ export const createBookingService = (
     return repo.save(mappers.toStored(input));
   },
   remove: async (id) => {
-    const existing = repo.get(id);
+    const existing = await repo.get(id);
     if (!existing) throw new NotFoundError(`Booking ${id} not found`);
-    repo.save(mappers.cancel(existing));
+    await repo.save(mappers.cancel(existing));
   },
 });
 
@@ -101,8 +103,10 @@ const sessionsPort: SessionsPort = {
   },
 };
 
-// Default singleton wired with the in-memory repo + in-process sessions port.
-export const bookingService = createBookingService(
-  createInMemoryRepository(),
-  sessionsPort
-);
+// Pick the adapter at boot. DATABASE_URL set → Postgres; otherwise in-memory.
+const db = getDb();
+const bookingRepo: BookingRepository = db
+  ? createPostgresRepository(db)
+  : createInMemoryRepository();
+
+export const bookingService = createBookingService(bookingRepo, sessionsPort);

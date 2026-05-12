@@ -6,7 +6,9 @@
   "scripts": {
     "start": "tsx src/server.ts",
     "test": "tsx --test \"test/**/*.test.ts\"",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
@@ -14,11 +16,14 @@
     "@opentelemetry/exporter-logs-otlp-proto": "^0.216.0",
     "@opentelemetry/exporter-metrics-otlp-proto": "^0.216.0",
     "@opentelemetry/exporter-trace-otlp-proto": "^0.216.0",
+    "@opentelemetry/instrumentation-pg": "^0.68.0",
     "@opentelemetry/sdk-logs": "^0.216.0",
     "@opentelemetry/sdk-metrics": "^2.7.1",
     "@opentelemetry/sdk-node": "^0.216.0",
     "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
     "express": "^4.19.2",
+    "pg": "^8.20.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "swagger-jsdoc": "^6.2.8",
@@ -28,9 +33,11 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^25.6.0",
+    "@types/pg": "^8.20.0",
     "@types/supertest": "^7.2.0",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
+    "drizzle-kit": "^0.31.10",
     "supertest": "^7.0.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
