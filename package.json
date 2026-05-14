@@ -5,6 +5,7 @@
   "main": "src/server.ts",
   "scripts": {
     "start": "tsx src/server.ts",
+    "dev": "concurrently -n api,web -c blue,magenta --kill-others-on-fail \"npm start\" \"npm --prefix web run dev\"",
     "test": "tsx --test \"test/**/*.test.ts\"",
     "check": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
@@ -37,6 +38,7 @@
     "@types/supertest": "^7.2.0",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
+    "concurrently": "^9.2.1",
     "drizzle-kit": "^0.31.10",
     "supertest": "^7.0.0",
     "tsx": "^4.21.0",

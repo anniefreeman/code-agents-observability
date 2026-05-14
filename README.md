@@ -1,4 +1,4 @@
-# ClassPass but for every hobby
+# Dabble - ClassPass but for every hobby
 ## Demo app for observing context engineering techniques
 
 A small backend powering a hobby-trial booking platform — users discover and book sessions across heterogeneous activities (tennis, pilates, dance, hiking, pottery, climbing). Built as a demo for observing AI code agents at work.
