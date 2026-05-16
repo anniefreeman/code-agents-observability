@@ -1,0 +1,101 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+connectors:
+  # Synthesises R.E.D (calls_total, duration) metrics from spans. APM's
+  # Service Catalog reads `calls_total` filtered by `cgx_transaction_root="true"`
+  # to identify service entry points — so we must emit that dimension.
+  # cgx.transaction is intentionally NOT a dimension: every trace has a unique
+  # value, which would explode metric cardinality (one series per request).
+  spanmetrics:
+    dimensions:
+      - name: http.method
+      - name: http.response.status_code
+      - name: http.route
+      - name: cgx.transaction.root
+      - name: status_code
+      - name: service.version
+    histogram:
+      explicit:
+        buckets: [1ms, 4ms, 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s]
+    metrics_expiration: 5m
+    metrics_flush_interval: 30s
+    namespace: ''
+
+  # Fan-out so the spanmetrics input can have its own (filtered) pipeline
+  # without affecting what we ship to Coralogix as raw traces.
+  forward/spanmetrics-input:
+
+processors:
+  # Coralogix's APM/Service Catalog needs cgx.transaction.root="true" on the span
+  # that represents the service entry point. The Coralogix-distributed collector
+  # derives this via its `coralogix` processor; the vanilla contrib distribution
+  # doesn't ship that processor, so we synthesise the same attribute here:
+  # any SERVER-kind span (kind=2 in OTel) is treated as a transaction root, and
+  # we also reuse its trace_id as the cgx.transaction id (stays on the span for
+  # transaction views, but is excluded from the spanmetrics dimensions above).
+  transform/cgx-transactions:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["cgx.transaction"], trace_id.string)
+          - set(attributes["cgx.transaction.root"], "true") where kind == SPAN_KIND_SERVER
+          - set(attributes["cgx.transaction.root"], "false") where kind != SPAN_KIND_SERVER
+
+  # Keeps only SERVER-kind spans for the spanmetrics path so each incoming
+  # HTTP request becomes one metric data point — not one per middleware/router
+  # span. Raw traces still go to Coralogix unchanged in the main `traces` pipeline.
+  filter/server-spans-only:
+    error_mode: ignore
+    traces:
+      span:
+        - 'kind != SPAN_KIND_SERVER'
+
+  batch:
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+    timeout: 1s
+
+exporters:
+  coralogix:
+    domain: ${env:CX_DOMAIN}
+    private_key: ${env:CX_PRIVATE_KEY}
+    application_name: ${env:CX_APPLICATION_NAME}
+    subsystem_name: ${env:CX_SUBSYSTEM_NAME}
+    timeout: 30s
+
+service:
+  pipelines:
+    # Full traces: every span flows to Coralogix and is also forwarded to the
+    # spanmetrics-input pipeline (which then filters before generating metrics).
+    traces:
+      receivers: [otlp]
+      processors: [transform/cgx-transactions, batch]
+      exporters: [coralogix, forward/spanmetrics-input]
+
+    # Spanmetrics-only path: receives the forwarded traces, drops non-SERVER
+    # spans, then feeds the spanmetrics connector.
+    traces/spanmetrics:
+      receivers: [forward/spanmetrics-input]
+      processors: [filter/server-spans-only]
+      exporters: [spanmetrics]
+
+    metrics:
+      receivers: [otlp, spanmetrics]
+      processors: [batch]
+      exporters: [coralogix]
+
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [coralogix]
+
+  telemetry:
+    logs:
+      level: info
