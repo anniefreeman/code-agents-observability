@@ -6,6 +6,7 @@ import healthRoutes from './features/health/routes';
 import sessionsRoutes from './features/sessions/routes';
 import bookingsRoutes from './features/bookings/routes';
 import waitlistRoutes from './features/waitlist/routes';
+import authRoutes from './features/auth/routes';
 import * as swagger from './swagger';
 
 const app = express();
@@ -29,6 +30,7 @@ app.use('/', healthRoutes);
 app.use('/sessions', sessionsRoutes);
 app.use('/bookings', bookingsRoutes);
 app.use('/waitlist', waitlistRoutes);
+app.use('/auth', authRoutes);
 app.use('/docs', ...swagger.middleware);
 
 // Domain errors thrown from controllers/services land here. Sync throws from

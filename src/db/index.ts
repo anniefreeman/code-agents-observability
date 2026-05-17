@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as sessionsSchema from './schema/sessions';
 import * as bookingsSchema from './schema/bookings';
 import * as waitlistSchema from './schema/waitlist';
+import * as usersSchema from './schema/users';
 
 // Single shared pool for the process. Pool size is intentionally small to fit
 // within RDS instance-class connection limits — tune via DATABASE_POOL_MAX
@@ -20,7 +21,12 @@ export const createPool = (databaseUrl: string): Pool =>
 
 export const createDb = (pool: Pool) =>
   drizzle(pool, {
-    schema: { ...sessionsSchema, ...bookingsSchema, ...waitlistSchema },
+    schema: {
+      ...sessionsSchema,
+      ...bookingsSchema,
+      ...waitlistSchema,
+      ...usersSchema,
+    },
   });
 
 export type Db = ReturnType<typeof createDb>;

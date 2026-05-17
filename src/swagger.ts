@@ -16,6 +16,10 @@ import {
   WaitlistEntryInputSchema,
   WaitlistEntryResponseSchema,
 } from './features/waitlist/schemas';
+import {
+  SignupInputSchema,
+  UserResponseSchema,
+} from './features/auth/schemas';
 
 // Register zod schemas under the names the route JSDoc references via $ref.
 // Adding a new feature: import its schemas and register them here.
@@ -26,6 +30,8 @@ registry.register('NewBooking', BookingInputSchema);
 registry.register('Booking', BookingResponseSchema);
 registry.register('NewWaitlistEntry', WaitlistEntryInputSchema);
 registry.register('WaitlistEntry', WaitlistEntryResponseSchema);
+registry.register('SignupInput', SignupInputSchema);
+registry.register('User', UserResponseSchema);
 
 const zodComponents = new OpenApiGeneratorV3(
   registry.definitions

@@ -63,3 +63,11 @@ export class SessionNotJoinableError extends DomainError {
     this.name = 'SessionNotJoinableError';
   }
 }
+
+export class DuplicateEmailError extends DomainError {
+  readonly statusCode = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = 'DuplicateEmailError';
+  }
+}
