@@ -99,6 +99,14 @@ Truly shared utility schemas (a `Location` type used by both sessions and venues
 - **Factories**: `createXService`, `createInMemoryX`, `createPostgresX`.
 - **Route paths**: feature-relative inside the router (`/`, `/:id`); prefixed in `app.ts` (`app.use('/sessions', sessionsRoutes)`).
 
+## Contract functions
+
+When a function does enough work to need multiple steps, structure it as a *contract*: the top-level body reads as a high-level specification, with each step delegated to a named sub-function. The contract carries the design; the sub-functions carry the implementation.
+
+Apply this when a function would otherwise mix concerns (validation + I/O + persistence, or orchestrating several external calls). Skip it for genuinely linear, single-purpose code — extracting one-line helpers just to satisfy the pattern is worse than leaving it inline.
+
+A reader should be able to learn what the function does without opening any sub-function.
+
 ## Resource model
 
 Two distinct user-facing resources:
