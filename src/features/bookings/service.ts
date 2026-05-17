@@ -9,6 +9,9 @@ import { NotFoundError, CapacityFullError, DuplicateBookingError } from '../../e
 // capture an export at module-load time when the other side may still be
 // initialising.
 import * as sessions from '../sessions/service';
+// Same lazy-namespace dance as the sessions import — waitlist/service.ts also
+// imports this module, so we mustn't capture exports at module-load time.
+import * as waitlist from '../waitlist/service';
 
 // Bookings' typed view of a session. Today this is satisfied by an in-process
 // adapter wrapping sessionService.get; tomorrow when sessions extracts into
@@ -29,6 +32,14 @@ export type SessionsPort = {
   getSession(id: string): Promise<SessionForBooking>;
 };
 
+// Waitlist hook fired when a confirmed booking is cancelled. Returns the
+// promoted attendee name when a seat was actually filled from the queue,
+// otherwise null (empty queue). The booking service doesn't act on the
+// return value today — it's plumbed through for future observability.
+export type WaitlistPort = {
+  promoteNext(sessionId: string): Promise<{ attendeeName: string } | null>;
+};
+
 export type BookingListFilter = {
   attendeeName?: string;
 };
@@ -42,7 +53,8 @@ export type BookingService = {
 
 export const createBookingService = (
   repo: BookingRepository,
-  sessions: SessionsPort
+  sessions: SessionsPort,
+  waitlistPort: WaitlistPort
 ): BookingService => ({
   list: async (filter) => {
     const all = await repo.all();
@@ -89,7 +101,11 @@ export const createBookingService = (
   remove: async (id) => {
     const existing = await repo.get(id);
     if (!existing) throw new NotFoundError(`Booking ${id} not found`);
+    const wasConfirmed = existing.status === 'confirmed';
     await repo.save(mappers.cancel(existing));
+    // Only a confirmed → cancelled transition frees a seat. Re-cancelling
+    // an already-cancelled booking is a no-op for the queue.
+    if (wasConfirmed) await waitlistPort.promoteNext(existing.sessionId);
   },
 });
 
@@ -103,10 +119,34 @@ const sessionsPort: SessionsPort = {
   },
 };
 
+// In-process adapter for WaitlistPort. Lazy-resolves waitlistService at call
+// time to dodge the sessions ↔ bookings ↔ waitlist import cycle.
+const waitlistPort: WaitlistPort = {
+  promoteNext: async (sessionId) => {
+    const promoted = await waitlist.waitlistService.promoteNext(sessionId);
+    return promoted ? { attendeeName: promoted.attendeeName } : null;
+  },
+};
+
 // Pick the adapter at boot. DATABASE_URL set → Postgres; otherwise in-memory.
 const db = getDb();
 const bookingRepo: BookingRepository = db
   ? createPostgresRepository(db)
   : createInMemoryRepository();
 
-export const bookingService = createBookingService(bookingRepo, sessionsPort);
+export const bookingService = createBookingService(
+  bookingRepo,
+  sessionsPort,
+  waitlistPort
+);
+
+// Bypass-validation insert used by the waitlist promotion flow. The caller
+// (waitlist.promoteNext) has already verified the session exists and a seat
+// is free, so we skip the capacity + duplicate checks here. Exposed as a
+// top-level helper rather than another BookingService method so it doesn't
+// leak into the public HTTP surface.
+export const createBookingFromPromotion = async (
+  sessionId: string,
+  attendeeName: string
+): Promise<BookingStored> =>
+  bookingRepo.save(mappers.toStored({ sessionId, attendeeName }));

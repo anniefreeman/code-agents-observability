@@ -39,3 +39,27 @@ export class DuplicateBookingError extends DomainError {
     this.name = 'DuplicateBookingError';
   }
 }
+
+export class SessionNotFullError extends DomainError {
+  readonly statusCode = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionNotFullError';
+  }
+}
+
+export class DuplicateWaitlistError extends DomainError {
+  readonly statusCode = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = 'DuplicateWaitlistError';
+  }
+}
+
+export class SessionNotJoinableError extends DomainError {
+  readonly statusCode = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionNotJoinableError';
+  }
+}
