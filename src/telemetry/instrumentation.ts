@@ -8,48 +8,28 @@ import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 
-const CX_DOMAIN = process.env.CX_DOMAIN || 'eu1.coralogix.com';
-const CX_PRIVATE_KEY = process.env.CX_PRIVATE_KEY;
-const APP_NAME = process.env.CX_APPLICATION_NAME || 'code-agents-observability';
-const SUBSYSTEM_NAME =
-  process.env.CX_SUBSYSTEM_NAME || process.env.OTEL_SERVICE_NAME || 'sessions-api';
+// Export to a local OTel Collector (see docker-compose.yml + otel-collector-config.yaml).
+// The collector synthesises span-metrics via the `spanmetrics` connector — those derived
+// series are what Coralogix's APM Service Catalog reads, so direct-to-ingress would
+// land spans but leave the Service Catalog empty.
+const OTLP_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
+const SERVICE_NAME = process.env.OTEL_SERVICE_NAME || 'sessions-api';
 
-// Surface OTel internals (export failures, dropped spans, etc.) on the server console
-// so silent observability problems are visible without needing to query the backend.
 type LogLevelKey = keyof typeof DiagLogLevel;
 const levelKey = (process.env.OTEL_LOG_LEVEL || 'WARN').toUpperCase() as LogLevelKey;
 const OTEL_LOG_LEVEL = DiagLogLevel[levelKey] ?? DiagLogLevel.WARN;
 diag.setLogger(new DiagConsoleLogger(), OTEL_LOG_LEVEL);
 
-if (!CX_PRIVATE_KEY) {
-  console.warn('[telemetry] CX_PRIVATE_KEY not set — telemetry will not be authenticated');
-}
-
-const cxHeaders = {
-  Authorization: `Bearer ${CX_PRIVATE_KEY}`,
-  'cx-application-name': APP_NAME,
-  'cx-subsystem-name': SUBSYSTEM_NAME,
-};
-
 const sdk = new NodeSDK({
-  traceExporter: new OTLPTraceExporter({
-    url: `https://ingress.${CX_DOMAIN}/v1/traces`,
-    headers: cxHeaders,
-  }),
+  traceExporter: new OTLPTraceExporter({ url: `${OTLP_ENDPOINT}/v1/traces` }),
   metricReaders: [
     new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter({
-        url: `https://ingress.${CX_DOMAIN}/v1/metrics`,
-        headers: cxHeaders,
-      }),
+      exporter: new OTLPMetricExporter({ url: `${OTLP_ENDPOINT}/v1/metrics` }),
     }),
   ],
   logRecordProcessors: [
     new BatchLogRecordProcessor(
-      new OTLPLogExporter({
-        url: `https://ingress.${CX_DOMAIN}/v1/logs`,
-        headers: cxHeaders,
-      })
+      new OTLPLogExporter({ url: `${OTLP_ENDPOINT}/v1/logs` })
     ),
   ],
   instrumentations: [getNodeAutoInstrumentations()],
@@ -57,7 +37,7 @@ const sdk = new NodeSDK({
 
 sdk.start();
 console.log(
-  `[telemetry] OpenTelemetry started — ${APP_NAME}/${SUBSYSTEM_NAME} → ${CX_DOMAIN} (traces + metrics + logs)`
+  `[telemetry] OpenTelemetry started — ${SERVICE_NAME} → ${OTLP_ENDPOINT} (traces + metrics + logs)`
 );
 
 process.on('SIGTERM', () => {
