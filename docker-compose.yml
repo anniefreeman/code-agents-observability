@@ -23,5 +23,20 @@ services:
       timeout: 3s
       retries: 10
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    container_name: code-agents-otel-collector
+    command: ['--config=/etc/otelcol-contrib/config.yaml']
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    environment:
+      CX_DOMAIN: ${CX_DOMAIN}
+      CX_PRIVATE_KEY: ${CX_PRIVATE_KEY}
+      CX_APPLICATION_NAME: ${CX_APPLICATION_NAME}
+      CX_SUBSYSTEM_NAME: ${CX_SUBSYSTEM_NAME}
+    ports:
+      - '4317:4317'
+      - '4318:4318'
+
 volumes:
   postgres-data:
